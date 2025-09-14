@@ -25,7 +25,7 @@ import {
   type InsertUserConnection,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, asc, like, or } from "drizzle-orm";
+import { eq, and, desc, asc, like, or, ne, ilike } from "drizzle-orm";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
@@ -293,6 +293,60 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userConnections.followerId, userId));
     
     return connections.map(row => row.user);
+  }
+
+  async discoverUsers(currentUserId: string, search?: string): Promise<User[]> {
+    let query = db
+      .select()
+      .from(users)
+      .where(ne(users.id, currentUserId))
+      .limit(20);
+
+    if (search && search.trim()) {
+      query = query.where(
+        or(
+          ilike(users.firstName, `%${search}%`),
+          ilike(users.lastName, `%${search}%`),
+          ilike(users.email, `%${search}%`)
+        )
+      );
+    }
+
+    return await query;
+  }
+
+  async getEventAttendeesWithSocialContext(eventId: string, currentUserId: string) {
+    // Get all attendees
+    const attendees = await db
+      .select({ user: users })
+      .from(eventAttendances)
+      .innerJoin(users, eq(eventAttendances.userId, users.id))
+      .where(eq(eventAttendances.eventId, eventId));
+
+    // Get current user's connections
+    const connections = await this.getUserConnections(currentUserId);
+    const connectionIds = new Set(connections.map(c => c.id));
+
+    // Separate friends and others
+    const friendsAttending = attendees
+      .filter(row => connectionIds.has(row.user.id))
+      .map(row => ({
+        ...row.user,
+        isFriend: true,
+      }));
+
+    const otherAttendees = attendees
+      .filter(row => !connectionIds.has(row.user.id) && row.user.id !== currentUserId)
+      .map(row => ({
+        ...row.user,
+        isFriend: false,
+      }));
+
+    return {
+      totalAttendees: attendees.length,
+      friendsAttending,
+      otherAttendees,
+    };
   }
 
   async followUser(followerId: string, followingId: string): Promise<UserConnection> {

@@ -120,9 +120,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/events/:eventId/attendees", async (req, res) => {
+  app.get("/api/events/:eventId/attendees", isAuthenticated, async (req: any, res) => {
     try {
-      const attendees = await storage.getEventAttendees(req.params.eventId);
+      const currentUserId = req.user.claims.sub;
+      const { eventId } = req.params;
+      const attendees = await storage.getEventAttendeesWithSocialContext(eventId, currentUserId);
       res.json(attendees);
     } catch (error) {
       console.error("Error fetching attendees:", error);
@@ -241,6 +243,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating artist:", error);
       res.status(500).json({ message: "Failed to create artist" });
+    }
+  });
+
+  // User discovery and social features
+  app.get("/api/users", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.claims.sub;
+      const { search } = req.query;
+      const users = await storage.discoverUsers(currentUserId, search as string);
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
     }
   });
 

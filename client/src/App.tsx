@@ -16,6 +16,7 @@ import { PersonalTimetable } from "@/components/PersonalTimetable";
 import { SocialAttendance } from "@/components/SocialAttendance";
 import { AdminDashboard } from "@/components/AdminDashboard";
 import PersonalSchedule from "@/pages/PersonalSchedule";
+import { useEventAttendees, useFollowUser, useUnfollowUser } from "@/hooks/useSocial";
 
 // Import images
 import festivalImage1 from '@assets/generated_images/festival_main_stage_sunset_d833fa8d.png';
@@ -26,6 +27,11 @@ function Home() {
   const { user, isLoading, isAuthenticated } = useAuth();
   const [currentPage, setCurrentPage] = useState<"events" | "schedule" | "profile" | "admin">("events");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  
+  // Social features
+  const { data: eventAttendees } = useEventAttendees(selectedEventId || "");
+  const followUserMutation = useFollowUser();
+  const unfollowUserMutation = useUnfollowUser();
 
   // todo: remove mock functionality - Mock data
   const mockEvents = [
@@ -243,10 +249,37 @@ function Home() {
             <div>
               <SocialAttendance
                 eventName="Electric Dreams Festival"
-                totalAttendees={12450}
-                friendsAttending={mockFriends}
-                otherAttendees={mockOtherAttendees}
-                onFollowUser={(userId) => console.log('Follow user:', userId)}
+                totalAttendees={eventAttendees?.totalAttendees || 0}
+                friendsAttending={eventAttendees?.friendsAttending.map(friend => ({
+                  id: friend.id,
+                  name: `${friend.firstName} ${friend.lastName}`,
+                  avatar: friend.profileImageUrl,
+                  isFriend: friend.isFriend,
+                  mutualFriends: friend.mutualFriends,
+                })) || []}
+                otherAttendees={eventAttendees?.otherAttendees.map(attendee => ({
+                  id: attendee.id,
+                  name: `${attendee.firstName} ${attendee.lastName}`,
+                  avatar: attendee.profileImageUrl,
+                  isFriend: attendee.isFriend,
+                  mutualFriends: attendee.mutualFriends,
+                })) || []}
+                onFollowUser={(userId) => {
+                  console.log('Follow user clicked:', userId);
+                  console.log('Event attendees:', eventAttendees);
+                  
+                  // Find if user is in friends or others list
+                  const isFriend = eventAttendees?.friendsAttending.find(f => f.id === userId) ||
+                                  eventAttendees?.otherAttendees.find(a => a.id === userId && a.isFriend);
+                  
+                  if (isFriend) {
+                    console.log('Unfollowing user:', userId);
+                    unfollowUserMutation.mutate(userId);
+                  } else {
+                    console.log('Following user:', userId);
+                    followUserMutation.mutate(userId);
+                  }
+                }}
                 onViewAllAttendees={() => console.log('View all attendees')}
               />
             </div>
