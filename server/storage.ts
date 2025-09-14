@@ -1,38 +1,280 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import {
+  users,
+  events,
+  artists,
+  stages,
+  performances,
+  eventAttendances,
+  userSchedules,
+  userConnections,
+  type User,
+  type UpsertUser,
+  type Event,
+  type InsertEvent,
+  type Artist,
+  type InsertArtist,
+  type Stage,
+  type InsertStage,
+  type Performance,
+  type InsertPerformance,
+  type EventAttendance,
+  type InsertEventAttendance,
+  type UserSchedule,
+  type InsertUserSchedule,
+  type UserConnection,
+  type InsertUserConnection,
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, asc, like, or } from "drizzle-orm";
 
 export interface IStorage {
+  // User operations (mandatory for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
+
+  // Event operations
+  getEvents(): Promise<Event[]>;
+  getEvent(id: string): Promise<Event | undefined>;
+  createEvent(event: InsertEvent): Promise<Event>;
+  updateEvent(id: string, event: Partial<InsertEvent>): Promise<Event>;
+  deleteEvent(id: string): Promise<void>;
+  searchEvents(query: string): Promise<Event[]>;
+
+  // Artist operations
+  getArtists(): Promise<Artist[]>;
+  getArtist(id: string): Promise<Artist | undefined>;
+  createArtist(artist: InsertArtist): Promise<Artist>;
+
+  // Stage operations
+  getEventStages(eventId: string): Promise<Stage[]>;
+  createStage(stage: InsertStage): Promise<Stage>;
+
+  // Performance operations
+  getEventPerformances(eventId: string): Promise<Performance[]>;
+  getPerformance(id: string): Promise<Performance | undefined>;
+  createPerformance(performance: InsertPerformance): Promise<Performance>;
+  getUserSchedulePerformances(userId: string): Promise<Performance[]>;
+
+  // Event attendance operations
+  getUserEventAttendance(userId: string, eventId: string): Promise<EventAttendance | undefined>;
+  toggleEventAttendance(userId: string, eventId: string): Promise<EventAttendance | null>;
+  getEventAttendees(eventId: string): Promise<User[]>;
+
+  // User schedule operations
+  getUserSchedule(userId: string): Promise<UserSchedule[]>;
+  addToUserSchedule(userId: string, performanceId: string): Promise<UserSchedule>;
+  removeFromUserSchedule(userId: string, performanceId: string): Promise<void>;
+
+  // User connection operations
+  getUserConnections(userId: string): Promise<User[]>;
+  followUser(followerId: string, followingId: string): Promise<UserConnection>;
+  unfollowUser(followerId: string, followingId: string): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
+  // User operations (mandatory for Replit Auth)
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  // Event operations
+  async getEvents(): Promise<Event[]> {
+    return await db.select().from(events).where(eq(events.status, "published")).orderBy(desc(events.startDate));
+  }
+
+  async getEvent(id: string): Promise<Event | undefined> {
+    const [event] = await db.select().from(events).where(eq(events.id, id));
+    return event;
+  }
+
+  async createEvent(eventData: InsertEvent): Promise<Event> {
+    const [event] = await db.insert(events).values(eventData).returning();
+    return event;
+  }
+
+  async updateEvent(id: string, eventData: Partial<InsertEvent>): Promise<Event> {
+    const [event] = await db
+      .update(events)
+      .set({ ...eventData, updatedAt: new Date() })
+      .where(eq(events.id, id))
+      .returning();
+    return event;
+  }
+
+  async deleteEvent(id: string): Promise<void> {
+    await db.delete(events).where(eq(events.id, id));
+  }
+
+  async searchEvents(query: string): Promise<Event[]> {
+    return await db
+      .select()
+      .from(events)
+      .where(
+        and(
+          eq(events.status, "published"),
+          or(
+            like(events.name, `%${query}%`),
+            like(events.location, `%${query}%`),
+            like(events.description, `%${query}%`)
+          )
+        )
+      )
+      .orderBy(desc(events.startDate));
+  }
+
+  // Artist operations
+  async getArtists(): Promise<Artist[]> {
+    return await db.select().from(artists).orderBy(asc(artists.name));
+  }
+
+  async getArtist(id: string): Promise<Artist | undefined> {
+    const [artist] = await db.select().from(artists).where(eq(artists.id, id));
+    return artist;
+  }
+
+  async createArtist(artistData: InsertArtist): Promise<Artist> {
+    const [artist] = await db.insert(artists).values(artistData).returning();
+    return artist;
+  }
+
+  // Stage operations
+  async getEventStages(eventId: string): Promise<Stage[]> {
+    return await db.select().from(stages).where(eq(stages.eventId, eventId));
+  }
+
+  async createStage(stageData: InsertStage): Promise<Stage> {
+    const [stage] = await db.insert(stages).values(stageData).returning();
+    return stage;
+  }
+
+  // Performance operations
+  async getEventPerformances(eventId: string): Promise<Performance[]> {
+    return await db
+      .select()
+      .from(performances)
+      .where(eq(performances.eventId, eventId))
+      .orderBy(asc(performances.startTime));
+  }
+
+  async getPerformance(id: string): Promise<Performance | undefined> {
+    const [performance] = await db.select().from(performances).where(eq(performances.id, id));
+    return performance;
+  }
+
+  async createPerformance(performanceData: InsertPerformance): Promise<Performance> {
+    const [performance] = await db.insert(performances).values(performanceData).returning();
+    return performance;
+  }
+
+  async getUserSchedulePerformances(userId: string): Promise<Performance[]> {
+    const userPerformances = await db
+      .select({ performance: performances })
+      .from(userSchedules)
+      .innerJoin(performances, eq(userSchedules.performanceId, performances.id))
+      .where(eq(userSchedules.userId, userId))
+      .orderBy(asc(performances.startTime));
+    
+    return userPerformances.map(row => row.performance);
+  }
+
+  // Event attendance operations
+  async getUserEventAttendance(userId: string, eventId: string): Promise<EventAttendance | undefined> {
+    const [attendance] = await db
+      .select()
+      .from(eventAttendances)
+      .where(and(eq(eventAttendances.userId, userId), eq(eventAttendances.eventId, eventId)));
+    return attendance;
+  }
+
+  async toggleEventAttendance(userId: string, eventId: string): Promise<EventAttendance | null> {
+    const existing = await this.getUserEventAttendance(userId, eventId);
+    
+    if (existing) {
+      await db
+        .delete(eventAttendances)
+        .where(and(eq(eventAttendances.userId, userId), eq(eventAttendances.eventId, eventId)));
+      return null;
+    } else {
+      const [attendance] = await db
+        .insert(eventAttendances)
+        .values({ userId, eventId })
+        .returning();
+      return attendance;
+    }
+  }
+
+  async getEventAttendees(eventId: string): Promise<User[]> {
+    const attendees = await db
+      .select({ user: users })
+      .from(eventAttendances)
+      .innerJoin(users, eq(eventAttendances.userId, users.id))
+      .where(eq(eventAttendances.eventId, eventId));
+    
+    return attendees.map(row => row.user);
+  }
+
+  // User schedule operations
+  async getUserSchedule(userId: string): Promise<UserSchedule[]> {
+    return await db
+      .select()
+      .from(userSchedules)
+      .where(eq(userSchedules.userId, userId));
+  }
+
+  async addToUserSchedule(userId: string, performanceId: string): Promise<UserSchedule> {
+    const [schedule] = await db
+      .insert(userSchedules)
+      .values({ userId, performanceId })
+      .returning();
+    return schedule;
+  }
+
+  async removeFromUserSchedule(userId: string, performanceId: string): Promise<void> {
+    await db
+      .delete(userSchedules)
+      .where(and(eq(userSchedules.userId, userId), eq(userSchedules.performanceId, performanceId)));
+  }
+
+  // User connection operations
+  async getUserConnections(userId: string): Promise<User[]> {
+    const connections = await db
+      .select({ user: users })
+      .from(userConnections)
+      .innerJoin(users, eq(userConnections.followingId, users.id))
+      .where(eq(userConnections.followerId, userId));
+    
+    return connections.map(row => row.user);
+  }
+
+  async followUser(followerId: string, followingId: string): Promise<UserConnection> {
+    const [connection] = await db
+      .insert(userConnections)
+      .values({ followerId, followingId })
+      .returning();
+    return connection;
+  }
+
+  async unfollowUser(followerId: string, followingId: string): Promise<void> {
+    await db
+      .delete(userConnections)
+      .where(and(eq(userConnections.followerId, followerId), eq(userConnections.followingId, followingId)));
+  }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

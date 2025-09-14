@@ -4,6 +4,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
 
 // Import Components
@@ -20,20 +21,10 @@ import festivalImage1 from '@assets/generated_images/festival_main_stage_sunset_
 import festivalImage2 from '@assets/generated_images/festival_grounds_overview_0ed3bb27.png';
 import festivalImage3 from '@assets/generated_images/DJ_performance_stage_cab17f4a.png';
 
-function Router() {
-  return (
-    <Switch>
-      <Route path="/" component={Home} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
 function Home() {
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const { user, isLoading, isAuthenticated } = useAuth();
   const [currentPage, setCurrentPage] = useState<"events" | "schedule" | "profile" | "admin">("events");
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [userSchedule, setUserSchedule] = useState<any[]>([]);
 
   // todo: remove mock functionality - Mock data
   const mockEvents = [
@@ -144,20 +135,12 @@ function Home() {
   ];
 
   // Auth handlers
-  const handleLogin = (method: string, data?: any) => {
-    console.log('Login with:', method, data);
-    // todo: remove mock functionality - Simulate login
-    setCurrentUser({
-      id: "1",
-      name: "Alex Johnson",
-      email: "alex@example.com",
-      avatar: undefined
-    });
+  const handleLogin = () => {
+    window.location.href = "/api/login";
   };
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentPage("events");
+    window.location.href = "/api/logout";
   };
 
   // Event handlers
@@ -185,125 +168,145 @@ function Home() {
     console.log('Resolve clash for:', itemId);
   };
 
-  // Show login if not authenticated
-  if (!currentUser) {
+  // Show loading or login if not authenticated
+  if (isLoading) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <LoginForm onLogin={handleLogin} />
-          <Toaster />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent mx-auto" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm onLogin={handleLogin} />;
   }
 
   // Main app with navigation
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <div className="min-h-screen bg-background">
-          <Navigation
-            user={currentUser}
-            currentPage={currentPage}
-            notificationCount={3}
-            onNavigate={setCurrentPage}
-            onLogin={() => handleLogin("manual")}
-            onLogout={handleLogout}
+    <div className="min-h-screen bg-background">
+      <Navigation
+        user={user ? {
+          id: (user as any).id,
+          name: `${(user as any).firstName || ''} ${(user as any).lastName || ''}`.trim() || (user as any).email || 'User',
+          email: (user as any).email || '',
+          avatar: (user as any).profileImageUrl
+        } : undefined}
+        currentPage={currentPage}
+        notificationCount={3}
+        onNavigate={setCurrentPage}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+      />
+      
+      <main className="container mx-auto px-4 py-8">
+        {/* Event Discovery */}
+        {currentPage === "events" && !selectedEventId && (
+          <div className="space-y-8">
+            <div className="text-center space-y-2">
+              <h1 className="font-heading text-3xl font-bold" data-testid="text-discover-title">
+                Discover Your Next Festival
+              </h1>
+              <p className="text-muted-foreground">
+                Find amazing music festivals and create your perfect schedule
+              </p>
+            </div>
+            <EventList
+              events={mockEvents}
+              onAttendToggle={handleAttendToggle}
+              onViewDetails={handleViewEventDetails}
+            />
+          </div>
+        )}
+
+        {/* Event Detail */}
+        {currentPage === "events" && selectedEventId && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <EventDetail
+                id={selectedEventId}
+                name="Electric Dreams Festival"
+                date="August 15-17, 2024"
+                location="Golden Gate Park, San Francisco"
+                image={festivalImage1}
+                description="Electric Dreams Festival is a three-day celebration of electronic music culture, bringing together world-renowned DJs, cutting-edge visual artists, and music lovers from around the globe."
+                attendeeCount={12450}
+                isAttending={false}
+                artists={mockArtists}
+                tags={["Electronic", "EDM", "Techno", "House"]}
+                onBack={handleBackToEvents}
+                onAttendToggle={handleAttendToggle}
+                onAddToSchedule={handleAddToSchedule}
+              />
+            </div>
+            <div>
+              <SocialAttendance
+                eventName="Electric Dreams Festival"
+                totalAttendees={12450}
+                friendsAttending={mockFriends}
+                otherAttendees={mockOtherAttendees}
+                onFollowUser={(userId) => console.log('Follow user:', userId)}
+                onViewAllAttendees={() => console.log('View all attendees')}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Personal Schedule */}
+        {currentPage === "schedule" && (
+          <PersonalTimetable
+            scheduleItems={mockScheduleItems}
+            onRemoveItem={handleRemoveFromSchedule}
+            onResolveClash={handleResolveClash}
           />
-          
-          <main className="container mx-auto px-4 py-8">
-            {/* Event Discovery */}
-            {currentPage === "events" && !selectedEventId && (
-              <div className="space-y-8">
-                <div className="text-center space-y-2">
-                  <h1 className="font-heading text-3xl font-bold" data-testid="text-discover-title">
-                    Discover Your Next Festival
-                  </h1>
-                  <p className="text-muted-foreground">
-                    Find amazing music festivals and create your perfect schedule
-                  </p>
-                </div>
-                <EventList
-                  events={mockEvents}
-                  onAttendToggle={handleAttendToggle}
-                  onViewDetails={handleViewEventDetails}
-                />
-              </div>
-            )}
+        )}
 
-            {/* Event Detail */}
-            {currentPage === "events" && selectedEventId && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2">
-                  <EventDetail
-                    id={selectedEventId}
-                    name="Electric Dreams Festival"
-                    date="August 15-17, 2024"
-                    location="Golden Gate Park, San Francisco"
-                    image={festivalImage1}
-                    description="Electric Dreams Festival is a three-day celebration of electronic music culture, bringing together world-renowned DJs, cutting-edge visual artists, and music lovers from around the globe."
-                    attendeeCount={12450}
-                    isAttending={false}
-                    artists={mockArtists}
-                    tags={["Electronic", "EDM", "Techno", "House"]}
-                    onBack={handleBackToEvents}
-                    onAttendToggle={handleAttendToggle}
-                    onAddToSchedule={handleAddToSchedule}
-                  />
-                </div>
-                <div>
-                  <SocialAttendance
-                    eventName="Electric Dreams Festival"
-                    totalAttendees={12450}
-                    friendsAttending={mockFriends}
-                    otherAttendees={mockOtherAttendees}
-                    onFollowUser={(userId) => console.log('Follow user:', userId)}
-                    onViewAllAttendees={() => console.log('View all attendees')}
-                  />
-                </div>
-              </div>
-            )}
+        {/* Profile Page */}
+        {currentPage === "profile" && (
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center space-y-4">
+              <h1 className="font-heading text-2xl font-bold">Profile Settings</h1>
+              <p className="text-muted-foreground">
+                Coming soon: Manage your festival preferences and profile
+              </p>
+            </div>
+          </div>
+        )}
 
-            {/* Personal Schedule */}
-            {currentPage === "schedule" && (
-              <PersonalTimetable
-                scheduleItems={mockScheduleItems}
-                onRemoveItem={handleRemoveFromSchedule}
-                onResolveClash={handleResolveClash}
-              />
-            )}
+        {/* Admin Dashboard */}
+        {currentPage === "admin" && (
+          <AdminDashboard
+            onCreateEvent={() => console.log('Create event')}
+            onEditEvent={(eventId) => console.log('Edit event:', eventId)}
+            onDeleteEvent={(eventId) => console.log('Delete event:', eventId)}
+            onSuspendUser={(userId) => console.log('Suspend user:', userId)}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
 
-            {/* Profile Page */}
-            {currentPage === "profile" && (
-              <div className="max-w-2xl mx-auto">
-                <div className="text-center space-y-4">
-                  <h1 className="font-heading text-2xl font-bold">Profile Settings</h1>
-                  <p className="text-muted-foreground">
-                    Coming soon: Manage your festival preferences and profile
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Admin Dashboard */}
-            {currentPage === "admin" && (
-              <AdminDashboard
-                onCreateEvent={() => console.log('Create event')}
-                onEditEvent={(eventId) => console.log('Edit event:', eventId)}
-                onDeleteEvent={(eventId) => console.log('Delete event:', eventId)}
-                onSuspendUser={(userId) => console.log('Suspend user:', userId)}
-              />
-            )}
-          </main>
-        </div>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+function Router() {
+  return (
+    <Switch>
+      <Route path="/" component={Home} />
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 
 function App() {
-  return <Router />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Router />
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
 export default App;
