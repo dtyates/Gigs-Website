@@ -1,47 +1,139 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EventCard } from "./EventCard";
 import { Search, Filter, Calendar } from "lucide-react";
-
-interface Event {
-  id: string;
-  name: string;
-  date: string;
-  location: string;
-  image: string;
-  description: string;
-  attendeeCount: number;
-  isAttending: boolean;
-  artistCount: number;
-  tags: string[];
-}
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import type { Event } from "@shared/schema";
 
 interface EventListProps {
-  events: Event[];
-  onAttendToggle: (id: string) => void;
   onViewDetails: (id: string) => void;
 }
 
-export function EventList({ events, onAttendToggle, onViewDetails }: EventListProps) {
+export function EventList({ onViewDetails }: EventListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const { toast } = useToast();
 
-  // Get unique tags from all events
-  const allTags = Array.from(new Set(events.flatMap(event => event.tags)));
+  // Fetch events from API
+  const { data: events = [], isLoading, error } = useQuery({
+    queryKey: searchQuery ? ["/api/events", searchQuery] : ["/api/events"],
+    queryFn: async () => {
+      const url = searchQuery ? `/api/events?search=${encodeURIComponent(searchQuery)}` : "/api/events";
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch events: ${response.statusText}`);
+      }
+      return response.json();
+    },
+  });
 
-  // Filter events based on search and selected filter
-  const filteredEvents = events.filter(event => {
-    const matchesSearch = event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.description.toLowerCase().includes(searchQuery.toLowerCase());
+  // Fetch user's event attendances if authenticated
+  const { data: userAttendances = [] } = useQuery({
+    queryKey: ["/api/user/attendances"],
+    queryFn: async () => {
+      if (!isAuthenticated) return [];
+      const response = await fetch("/api/user/attendances");
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: isAuthenticated,
+  });
+
+  // Toggle event attendance
+  const attendanceMutation = useMutation({
+    mutationFn: async (eventId: string) => {
+      const response = await fetch(`/api/events/${eventId}/attend`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to toggle attendance");
+      }
+      return response.json();
+    },
+    onSuccess: (data, eventId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/attendances"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/events/${eventId}/attendees`] });
+      toast({
+        title: data.attending ? "Attending festival!" : "No longer attending",
+        description: data.attending 
+          ? "You'll receive updates about this festival"
+          : "You won't receive further updates",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to update attendance. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAttendToggle = (eventId: string) => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to attend festivals",
+        variant: "destructive",
+      });
+      return;
+    }
+    attendanceMutation.mutate(eventId);
+  };
+
+  // Mock tags for now - in a real app, these would come from the events or be predefined
+  const allTags = ["Electronic", "EDM", "Techno", "House", "Progressive", "Ambient"];
+
+  // Filter events based on search and selected filter  
+  const filteredEvents = events.filter((event: Event) => {
+    const matchesSearch = searchQuery === "" || (
+      event.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
     
-    const matchesFilter = !selectedFilter || event.tags.includes(selectedFilter);
+    // For now, skip tag filtering since we don't have tags in the schema yet
+    const matchesFilter = !selectedFilter;
     
     return matchesSearch && matchesFilter;
   });
+
+  // Transform events to match EventCard interface
+  const transformedEvents = filteredEvents.map((event: Event) => ({
+    id: event.id,
+    name: event.name || "",
+    date: event.startDate ? new Date(event.startDate).toLocaleDateString('en-US', { 
+      weekday: 'long',
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    }) : "",
+    location: event.location || "",
+    image: event.imageUrl || "/placeholder-festival.jpg",
+    description: event.description || "",
+    attendeeCount: 0, // This would need to be fetched separately
+    isAttending: userAttendances.some((attendance: any) => attendance.eventId === event.id),
+    artistCount: 6, // Mock for now
+    tags: ["Electronic", "EDM"] // Mock for now
+  }));
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-destructive mb-2">Failed to load festivals</div>
+        <p className="text-sm text-muted-foreground">
+          Please try refreshing the page
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -109,25 +201,37 @@ export function EventList({ events, onAttendToggle, onViewDetails }: EventListPr
       {/* Results Header */}
       <div className="flex items-center justify-between">
         <h2 className="font-heading text-xl font-semibold" data-testid="text-results-count">
-          {filteredEvents.length} Festival{filteredEvents.length !== 1 ? 's' : ''}
-          {searchQuery && ` for "${searchQuery}"`}
+          {isLoading ? "Loading..." : (
+            <>
+              {transformedEvents.length} Festival{transformedEvents.length !== 1 ? 's' : ''}
+              {searchQuery && ` for "${searchQuery}"`}
+            </>
+          )}
         </h2>
       </div>
 
       {/* Event Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredEvents.map((event) => (
-          <EventCard
-            key={event.id}
-            {...event}
-            onAttendToggle={onAttendToggle}
-            onViewDetails={onViewDetails}
-          />
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map((i: number) => (
+            <div key={i} className="h-64 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {transformedEvents.map((event: any) => (
+            <EventCard
+              key={event.id}
+              {...event}
+              onAttendToggle={handleAttendToggle}
+              onViewDetails={onViewDetails}
+            />
+          ))}
+        </div>
+      )}
 
       {/* No Results */}
-      {filteredEvents.length === 0 && (
+      {!isLoading && transformedEvents.length === 0 && (
         <div className="text-center py-12">
           <div className="text-muted-foreground mb-2">No festivals found</div>
           <p className="text-sm text-muted-foreground">

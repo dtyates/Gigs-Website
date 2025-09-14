@@ -214,8 +214,6 @@ function Home() {
               </p>
             </div>
             <EventList
-              events={mockEvents}
-              onAttendToggle={handleAttendToggle}
               onViewDetails={handleViewEventDetails}
             />
           </div>

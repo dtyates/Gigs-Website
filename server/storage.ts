@@ -57,6 +57,7 @@ export interface IStorage {
 
   // Event attendance operations
   getUserEventAttendance(userId: string, eventId: string): Promise<EventAttendance | undefined>;
+  getUserEventAttendances(userId: string): Promise<EventAttendance[]>;
   toggleEventAttendance(userId: string, eventId: string): Promise<EventAttendance | null>;
   getEventAttendees(eventId: string): Promise<User[]>;
 
@@ -200,6 +201,13 @@ export class DatabaseStorage implements IStorage {
       .from(eventAttendances)
       .where(and(eq(eventAttendances.userId, userId), eq(eventAttendances.eventId, eventId)));
     return attendance;
+  }
+
+  async getUserEventAttendances(userId: string): Promise<EventAttendance[]> {
+    return await db
+      .select()
+      .from(eventAttendances)
+      .where(eq(eventAttendances.userId, userId));
   }
 
   async toggleEventAttendance(userId: string, eventId: string): Promise<EventAttendance | null> {

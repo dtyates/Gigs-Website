@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { seedDatabase } from "./seedData";
 import {
   insertEventSchema,
   insertArtistSchema,
@@ -15,6 +16,19 @@ import {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+
+  // Seed database with sample data (development only)
+  if (process.env.NODE_ENV === 'development') {
+    try {
+      const existingEvents = await storage.getEvents();
+      if (existingEvents.length === 0) {
+        const seedResult = await seedDatabase();
+        console.log("Database seeded:", seedResult);
+      }
+    } catch (error) {
+      console.log("Database seeding skipped (may already contain data):", error);
+    }
+  }
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
@@ -113,6 +127,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching attendees:", error);
       res.status(500).json({ message: "Failed to fetch attendees" });
+    }
+  });
+
+  app.get("/api/user/attendances", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const attendances = await storage.getUserEventAttendances(userId);
+      res.json(attendances);
+    } catch (error) {
+      console.error("Error fetching user attendances:", error);
+      res.status(500).json({ message: "Failed to fetch user attendances" });
     }
   });
 
