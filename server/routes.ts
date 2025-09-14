@@ -13,6 +13,26 @@ import {
   insertUserConnectionSchema,
 } from "@shared/schema";
 
+// Admin middleware
+async function isAdmin(req: any, res: any, next: any) {
+  try {
+    const userId = req.user?.claims?.sub;
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    
+    const user = await storage.getUser(userId);
+    if (!user || !user.isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    
+    next();
+  } catch (error) {
+    console.error("Admin check error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
@@ -74,7 +94,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/events", isAuthenticated, async (req, res) => {
+  app.post("/api/events", isAuthenticated, isAdmin, async (req, res) => {
     try {
       const eventData = insertEventSchema.parse(req.body);
       const event = await storage.createEvent(eventData);
@@ -85,7 +105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/events/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/events/:id", isAuthenticated, isAdmin, async (req, res) => {
     try {
       const eventData = insertEventSchema.partial().parse(req.body);
       const event = await storage.updateEvent(req.params.id, eventData);
@@ -96,7 +116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/events/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/events/:id", isAuthenticated, isAdmin, async (req, res) => {
     try {
       await storage.deleteEvent(req.params.id);
       res.status(204).send();
@@ -294,6 +314,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error unfollowing user:", error);
       res.status(500).json({ message: "Failed to unfollow user" });
+    }
+  });
+
+  // Admin routes
+  app.get("/api/admin/analytics", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const analytics = await storage.getAdminAnalytics();
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error fetching analytics:", error);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  app.get("/api/admin/users", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsersWithStats();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.put("/api/admin/users/:id/status", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { isActive } = req.body;
+      const user = await storage.updateUserStatus(req.params.id, isActive);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating user status:", error);
+      res.status(500).json({ message: "Failed to update user status" });
+    }
+  });
+
+  app.get("/api/admin/events", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const events = await storage.getAllEvents();
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching admin events:", error);
+      res.status(500).json({ message: "Failed to fetch admin events" });
     }
   });
 

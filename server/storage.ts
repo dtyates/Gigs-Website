@@ -39,6 +39,7 @@ export interface IStorage {
   updateEvent(id: string, event: Partial<InsertEvent>): Promise<Event>;
   deleteEvent(id: string): Promise<void>;
   searchEvents(query: string): Promise<Event[]>;
+  getAllEvents(): Promise<Event[]>;
 
   // Artist operations
   getArtists(): Promise<Artist[]>;
@@ -70,6 +71,18 @@ export interface IStorage {
   getUserConnections(userId: string): Promise<User[]>;
   followUser(followerId: string, followingId: string): Promise<UserConnection>;
   unfollowUser(followerId: string, followingId: string): Promise<void>;
+
+  // Admin operations
+  getAdminAnalytics(): Promise<{
+    totalEvents: number;
+    publishedEvents: number;
+    totalUsers: number;
+    totalAttendees: number;
+    recentEvents: Event[];
+    recentUsers: User[];
+  }>;
+  getAllUsersWithStats(): Promise<Array<User & { eventsAttended: number }>>;
+  updateUserStatus(userId: string, isActive: boolean): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -137,6 +150,10 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(desc(events.startDate));
+  }
+
+  async getAllEvents(): Promise<Event[]> {
+    return await db.select().from(events).orderBy(desc(events.startDate));
   }
 
   // Artist operations
@@ -361,6 +378,57 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(userConnections)
       .where(and(eq(userConnections.followerId, followerId), eq(userConnections.followingId, followingId)));
+  }
+
+  // Admin operations
+  async getAdminAnalytics() {
+    const [totalEventsResult] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(events);
+    const [publishedEventsResult] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(events).where(eq(events.status, "published"));
+    const [totalUsersResult] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(users);
+    const [totalAttendeesResult] = await db.select({ count: sql<number>`cast(count(*) as int)` }).from(eventAttendances);
+
+    const recentEvents = await db.select().from(events).orderBy(desc(events.createdAt)).limit(5);
+    const recentUsers = await db.select().from(users).orderBy(desc(users.createdAt)).limit(5);
+
+    return {
+      totalEvents: totalEventsResult.count || 0,
+      publishedEvents: publishedEventsResult.count || 0,
+      totalUsers: totalUsersResult.count || 0,
+      totalAttendees: totalAttendeesResult.count || 0,
+      recentEvents,
+      recentUsers,
+    };
+  }
+
+  async getAllUsersWithStats(): Promise<Array<User & { eventsAttended: number }>> {
+    const usersWithStats = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        profileImageUrl: users.profileImageUrl,
+        isAdmin: users.isAdmin,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+        eventsAttended: sql<number>`cast(count(${eventAttendances.id}) as int)`,
+      })
+      .from(users)
+      .leftJoin(eventAttendances, eq(users.id, eventAttendances.userId))
+      .groupBy(users.id)
+      .orderBy(desc(users.createdAt));
+
+    return usersWithStats;
+  }
+
+  async updateUserStatus(userId: string, isActive: boolean): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ isActive, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 }
 
