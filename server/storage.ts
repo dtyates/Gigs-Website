@@ -166,11 +166,23 @@ export class DatabaseStorage implements IStorage {
 
   // Performance operations
   async getEventPerformances(eventId: string): Promise<Performance[]> {
-    return await db
-      .select()
+    const performancesWithRelations = await db
+      .select({
+        performance: performances,
+        artist: artists,
+        stage: stages,
+      })
       .from(performances)
+      .leftJoin(artists, eq(performances.artistId, artists.id))
+      .leftJoin(stages, eq(performances.stageId, stages.id))
       .where(eq(performances.eventId, eventId))
       .orderBy(asc(performances.startTime));
+
+    return performancesWithRelations.map(row => ({
+      ...row.performance,
+      artist: row.artist,
+      stage: row.stage,
+    }));
   }
 
   async getPerformance(id: string): Promise<Performance | undefined> {
@@ -185,13 +197,26 @@ export class DatabaseStorage implements IStorage {
 
   async getUserSchedulePerformances(userId: string): Promise<Performance[]> {
     const userPerformances = await db
-      .select({ performance: performances })
+      .select({
+        performance: performances,
+        artist: artists,
+        stage: stages,
+        event: events,
+      })
       .from(userSchedules)
       .innerJoin(performances, eq(userSchedules.performanceId, performances.id))
+      .leftJoin(artists, eq(performances.artistId, artists.id))
+      .leftJoin(stages, eq(performances.stageId, stages.id))
+      .leftJoin(events, eq(performances.eventId, events.id))
       .where(eq(userSchedules.userId, userId))
       .orderBy(asc(performances.startTime));
     
-    return userPerformances.map(row => row.performance);
+    return userPerformances.map(row => ({
+      ...row.performance,
+      artist: row.artist,
+      stage: row.stage,
+      event: row.event,
+    }));
   }
 
   // Event attendance operations

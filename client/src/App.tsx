@@ -15,6 +15,7 @@ import { EventDetail } from "@/components/EventDetail";
 import { PersonalTimetable } from "@/components/PersonalTimetable";
 import { SocialAttendance } from "@/components/SocialAttendance";
 import { AdminDashboard } from "@/components/AdminDashboard";
+import PersonalSchedule from "@/pages/PersonalSchedule";
 
 // Import images
 import festivalImage1 from '@assets/generated_images/festival_main_stage_sunset_d833fa8d.png';
@@ -254,11 +255,7 @@ function Home() {
 
         {/* Personal Schedule */}
         {currentPage === "schedule" && (
-          <PersonalTimetable
-            scheduleItems={mockScheduleItems}
-            onRemoveItem={handleRemoveFromSchedule}
-            onResolveClash={handleResolveClash}
-          />
+          <PersonalSchedule />
         )}
 
         {/* Profile Page */}

@@ -163,12 +163,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // User schedule routes
+  // User schedule routes with clash detection
   app.get("/api/user/schedule", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const schedule = await storage.getUserSchedule(userId);
-      res.json(schedule);
+      const scheduledPerformances = await storage.getUserSchedulePerformances(userId);
+      res.json(scheduledPerformances);
     } catch (error) {
       console.error("Error fetching user schedule:", error);
       res.status(500).json({ message: "Failed to fetch schedule" });
@@ -180,6 +180,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.claims.sub;
       const { performanceId } = req.body;
       
+      // Check for schedule conflicts before adding
+      const conflicts = await checkScheduleConflicts(storage, userId, performanceId);
+      if (conflicts.length > 0) {
+        return res.status(409).json({ 
+          message: "Performance conflicts with existing schedule", 
+          conflicts 
+        });
+      }
+
       const schedule = await storage.addToUserSchedule(userId, performanceId);
       res.status(201).json(schedule);
     } catch (error) {
@@ -192,14 +201,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const performanceId = req.params.performanceId;
-      
       await storage.removeFromUserSchedule(userId, performanceId);
-      res.status(204).send();
+      res.json({ message: "Removed from schedule" });
     } catch (error) {
       console.error("Error removing from schedule:", error);
       res.status(500).json({ message: "Failed to remove from schedule" });
     }
   });
+
+  app.get("/api/user/schedule/conflicts/:performanceId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const performanceId = req.params.performanceId;
+      const conflicts = await checkScheduleConflicts(storage, userId, performanceId);
+      res.json({ conflicts });
+    } catch (error) {
+      console.error("Error checking conflicts:", error);
+      res.status(500).json({ message: "Failed to check conflicts" });
+    }
+  });
+
 
   // Artist routes
   app.get("/api/artists", async (req, res) => {
@@ -264,4 +285,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
   return httpServer;
+}
+
+// Helper function to check for schedule conflicts (clash detection)
+async function checkScheduleConflicts(storage: any, userId: string, newPerformanceId: string) {
+  try {
+    // Get the new performance details
+    const newPerformance = await storage.getPerformance(newPerformanceId);
+    if (!newPerformance) return [];
+
+    // Get user's current schedule
+    const userSchedule = await storage.getUserSchedulePerformances(userId);
+    
+    // Check for time conflicts
+    const conflicts = userSchedule.filter((scheduledPerf: any) => {
+      const newStart = new Date(newPerformance.startTime);
+      const newEnd = new Date(newPerformance.endTime);
+      const schedStart = new Date(scheduledPerf.startTime);
+      const schedEnd = new Date(scheduledPerf.endTime);
+      
+      // Check if there's overlap: (StartA < EndB) and (EndA > StartB)
+      return (newStart < schedEnd) && (newEnd > schedStart);
+    });
+
+    return conflicts.map((conflict: any) => ({
+      id: conflict.id,
+      artistName: conflict.artist?.name,
+      stageName: conflict.stage?.name,
+      startTime: conflict.startTime,
+      endTime: conflict.endTime,
+    }));
+  } catch (error) {
+    console.error("Error checking schedule conflicts:", error);
+    return [];
+  }
 }
